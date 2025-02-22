@@ -40,7 +40,7 @@ class SearchCreativesVideo(BaseModel):
     advertiser_id: str
     creative_id: str
     # click_url: str | None = None
-    # video_url: str | None = None
+    thumbnail_url: str | None = None
     # title: str | None = None
     # description: str | None = None
     html: str | None = None

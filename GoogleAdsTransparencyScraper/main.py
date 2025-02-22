@@ -72,13 +72,33 @@ class GoogleAdsTransparencyScraper:
                 ))
         return results
 
-    def _parse_content_js(self, content_js: str):
+    #def _parse_content_js(self, content_js: str):
         matched = re.search(r'previewservice\.insertPreviewHtmlContent\(\'(.*?)\', \'(.*?)\', \'(.*)\', (\d+), (\d+), null, (true|false), (\d+), (true|false), (\d+), (true|false), (true|false), (true|false), (true|false)\);', content_js)
         if not matched:
             return None
         arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13 = matched.groups()
         # soup = BeautifulSoup(arg3.encode().decode('unicode-escape'), 'html.parser')
         return arg3.encode().decode('unicode-escape')
+    # jsからサムネイルurlを取得
+    def _parse_content_js(self, content_js: str):
+        matched = re.search(r"'(https?://i\.ytimg\.com[^']+)'", content_js)
+        if matched:
+            url = matched.group(1)
+            return {
+                'type': 'video',
+                'html': content_js,
+                'value': url,
+            }
+        else:
+            matched = re.search(r'previewservice\.insertPreviewHtmlContent\(\'(.*?)\', \'(.*?)\', \'(.*)\', (\d+), (\d+), null, (true|false), (\d+), (true|false), (\d+), (true|false), (true|false), (true|false), (true|false)\);', content_js)
+            if not matched:
+                return None
+            arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13 = matched.groups()
+            # soup = BeautifulSoup(arg3.encode().decode('unicode-escape'), 'html.parser')
+            return {
+                'type': 'html',
+                'value': arg3.encode().decode('unicode-escape')
+            }
 
     def search_creatives_by_domain(self, domain: str, cursor: str | None = None):
         params = {
@@ -129,14 +149,40 @@ class GoogleAdsTransparencyScraper:
         for search_creative in result['1']:
             match search_creative['4']:
                 case 1:
-                    results.creatives.append(SearchCreativesText(
-                        advertiser_id=search_creative['1'],
-                        creative_id=search_creative['2'],
-                        archive_image_url=BeautifulSoup(search_creative['3']['3']['2'], 'html.parser').find('img')['src'],
-                        format="TEXT",
-                        advertiser_name=search_creative['12'],
-                        advertiser_domain=search_creative['14'],
-                    ))
+                    try:
+                        archive_image_url = BeautifulSoup(search_creative['3']['3']['2'], 'html.parser').find('img')['src']
+                    except:
+                        archive_image_url = None
+                    if archive_image_url:
+                        results.creatives.append(SearchCreativesImage(
+                            advertiser_id=search_creative['1'],
+                            creative_id=search_creative['2'],
+                            archive_image_url=archive_image_url,
+                            format="IMAGE",
+                            advertiser_name=search_creative['12'],
+                            advertiser_domain=search_creative['14'],
+                        ))
+                    else:
+                        parse_result = self._parse_content_js(requests.get(search_creative['3']['1']['4']).text)
+                        if parse_result['type'] == 'video':
+                            results.creatives.append(SearchCreativesVideo(
+                                advertiser_id=search_creative['1'],
+                                creative_id=search_creative['2'],
+                                html=parse_result['html'],
+                                thumbnail_url=parse_result['value'],
+                                format="VIDEO",
+                                advertiser_name=search_creative['12'],
+                                advertiser_domain=search_creative['14'],
+                            ))
+                        elif parse_result['type'] == 'html':
+                            results.creatives.append(SearchCreativesImage(
+                                advertiser_id=search_creative['1'],
+                                creative_id=search_creative['2'],
+                                html=parse_result['value'],
+                                format="IMAGE",
+                                advertiser_name=search_creative['12'],
+                                advertiser_domain=search_creative['14'],
+                            ))
                 case 2:
                     try:
                         archive_image_url = BeautifulSoup(search_creative['3']['3']['2'], 'html.parser').find('img')['src']
@@ -152,29 +198,52 @@ class GoogleAdsTransparencyScraper:
                             advertiser_domain=search_creative['14'],
                         ))
                     else:
-                        html = self._parse_content_js(requests.get(search_creative['3']['1']['4']).text)
+                        parse_result = self._parse_content_js(requests.get(search_creative['3']['1']['4']).text)
+                        if parse_result['type'] == 'video':
+                            print(parse_result)
+                            results.creatives.append(SearchCreativesVideo(
+                                advertiser_id=search_creative['1'],
+                                creative_id=search_creative['2'],
+                                html=parse_result['html'],
+                                thumbnail_url=parse_result['value'],
+                                format="VIDEO",
+                                advertiser_name=search_creative['12'],
+                                advertiser_domain=search_creative['14'],
+                            ))
+                        elif parse_result['type'] == 'html':
+                            results.creatives.append(SearchCreativesImage(
+                                advertiser_id=search_creative['1'],
+                                creative_id=search_creative['2'],
+                                html=parse_result['value'],
+                                format="IMAGE",
+                                advertiser_name=search_creative['12'],
+                                advertiser_domain=search_creative['14'],
+                            )) 
+                case 3:
+                    try:
+                        archive_image_url = BeautifulSoup(search_creative['3']['3']['2'], 'html.parser').find('img')['src']
+                    except:
+                        archive_image_url = None
+                    if archive_image_url:
                         results.creatives.append(SearchCreativesImage(
                             advertiser_id=search_creative['1'],
                             creative_id=search_creative['2'],
-                            html=html,
-                            format="IMAGE",
+                            archive_image_url=archive_image_url,
+                            format="TEXT",
                             advertiser_name=search_creative['12'],
                             advertiser_domain=search_creative['14'],
                         ))
-                case 3:
-                    html = self._parse_content_js(requests.get(search_creative['3']['1']['4']).text)
-                    results.creatives.append(SearchCreativesImage(
-                        advertiser_id=search_creative['1'],
-                        creative_id=search_creative['2'],
-                        html=html,
-                        format="IMAGE",
-                        advertiser_name=search_creative['12'],
-                        advertiser_domain=search_creative['14'],
-                    ))
         return results
 
 if __name__ == '__main__':
     google_ads_transparency_scraper = GoogleAdsTransparencyScraper()
     # print(google_ads_transparency_scraper.search_suggestions('temu').domains)
-    print(google_ads_transparency_scraper.search_creatives_by_domain('temu.com'))
+    #results = google_ads_transparency_scraper.search_creatives_by_domain('onoya-fudousan.com')
+    results = google_ads_transparency_scraper.search_creatives_by_domain('onoya-fudousan.com')
+    for result in results.creatives:
+        if result.format == 'IMAGE':
+            print(result.advertiser_domain, result.advertiser_name, result.creative_id, result.archive_image_url)
+        elif result.format == 'VIDEO':
+            print(result.advertiser_domain, result.advertiser_name, result.creative_id, result.thumbnail_url)
+    print(len(results.creatives))
     # google_ads_transparency_scraper._parse_content_js(requests.get('https://displayads-formats.googleusercontent.com/ads/preview/content.js?client=ads-integrity-transparency&obfuscatedCustomerId=9400287112&creativeId=670757879201&uiFeatures=12,54&adGroupId=151327612783&itemIds=4842605165526610089&overlay=%3DH4sIAAAAAAAAALMSMxLhEuJcWbB-2d5kE2dBHuNFW51Neoq8ZLgEkouLXTKLC3ISK4NLijLz0oU4uNjc8_PTc1K9VLgkijPyCwqAoo4p_mlpqUXORamJJZllqQZCHFZsHN-ZhBgZAcGfrvpcAAAA&sig=ACiVB_yMBgizmkqvLVbL9G2n3iUmrX4fSA&htmlParentId=fletch-render-4246689711494543967&responseCallback=fletchCallback4246689711494543967').text)
